@@ -1,11 +1,10 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
 
-// Define the shape of a Magic.link account
+// Define the shape of a SendX account
 interface Account {
   id: string;
   name: string;
-  publishableKey: string;
-  secretKey: string;
+  apiKey: string;
   status?: "unknown" | "checking" | "connected" | "failed";
   lastCheckResponse?: any;
 }
@@ -38,7 +37,7 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
     const response = await fetch('/api/accounts/check-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ secretKey: account.secretKey }) // Send the secret key for validation
+        body: JSON.stringify({ apiKey: account.apiKey }) // Send the api key for validation
     });
     const result = await response.json();
     return { ...account, status: result.status, lastCheckResponse: result.response };

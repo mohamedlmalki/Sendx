@@ -2,7 +2,7 @@ const express = require("express");
 const fs = require("fs").promises;
 const cors = require("cors");
 const path = require("path");
-const { Magic } = require("@magic-sdk/admin");
+const axios = require("axios");
 
 
 const app = express();
@@ -36,12 +36,12 @@ app.get("/api/accounts", async (req, res) => {
 
 // POST a new account
 app.post("/api/accounts", async (req, res) => {
-  const { name, publishableKey, secretKey } = req.body;
-  if (!name || !publishableKey || !secretKey) {
-    return res.status(400).json({ error: "Name, Publishable Key, and Secret Key are required" });
+  const { name, apiKey } = req.body;
+  if (!name || !apiKey) {
+    return res.status(400).json({ error: "Name and API Key are required" });
   }
   const accounts = await readAccounts();
-  const newAccount = { id: `acc_${Date.now()}`, name, publishableKey, secretKey };
+  const newAccount = { id: `acc_${Date.now()}`, name, apiKey };
   accounts.push(newAccount);
   await writeAccounts(accounts);
   res.status(201).json(newAccount);
@@ -50,7 +50,7 @@ app.post("/api/accounts", async (req, res) => {
 // PUT (update) an existing account
 app.put("/api/accounts/:id", async (req, res) => {
     const { id } = req.params;
-    const { name, publishableKey, secretKey } = req.body;
+    const { name, apiKey } = req.body;
     const accounts = await readAccounts();
     const accountIndex = accounts.findIndex(acc => acc.id === id);
 
@@ -58,7 +58,7 @@ app.put("/api/accounts/:id", async (req, res) => {
         return res.status(404).json({ error: "Account not found" });
     }
 
-    accounts[accountIndex] = { ...accounts[accountIndex], name, publishableKey, secretKey };
+    accounts[accountIndex] = { ...accounts[accountIndex], name, apiKey };
     await writeAccounts(accounts);
     res.json(accounts[accountIndex]);
 });
@@ -77,37 +77,31 @@ app.delete("/api/accounts/:id", async (req, res) => {
     res.status(200).json({ message: "Account deleted successfully" });
 });
 
-// ... (keep all the code from the top of the file)
-
-
-// ... (keep all the code from the top of the file)
-
-// Endpoint to check connection status for Magic.link
+// Endpoint to check connection status for SendX
 app.post("/api/accounts/check-status", async (req, res) => {
-  const { secretKey } = req.body;
-  if (!secretKey) {
-    return res.status(400).json({ status: 'failed', response: { message: 'Secret Key is required.' }});
+  const { apiKey } = req.body;
+  if (!apiKey) {
+    return res.status(400).json({ status: 'failed', response: { message: 'API Key is required.' }});
   }
   try {
-    const magic = new Magic(secretKey);
-    
-    // Make the API call and store its successful response
-    const metadataResponse = await magic.users.getMetadataByIssuer("did:ethr:0x0000000000000000000000000000000000000000");
+    const response = await axios.get('https://api.sendx.io/api/v1/rest/sender', {
+      headers: {
+        'X-Team-ApiKey': apiKey
+      }
+    });
 
-    // Now, we include the actual response in our success message.
     res.json({
       status: 'connected',
       response: {
-        message: 'Connection successful. The API call succeeded.',
-        originalResponse: metadataResponse // This is the raw data from Magic
+        message: 'Connection successful.',
+        originalResponse: response.data
       }
     });
   } catch (error) {
-    // This catch block now correctly handles real errors.
     const getErrorResponse = (err) => ({
         name: err.name,
         message: err.message,
-        data: err.data || "No additional data provided.", 
+        data: err.response ? err.response.data : "No additional data provided.",
     });
 
     res.json({
@@ -117,8 +111,47 @@ app.post("/api/accounts/check-status", async (req, res) => {
   }
 });
 
+// GET all lists for an account
+app.post("/api/lists", async (req, res) => {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+        return res.status(400).json({ error: "API Key is required" });
+    }
+    try {
+        const response = await axios.get('https://api.sendx.io/api/v1/rest/list', {
+            headers: { 'X-Team-ApiKey': apiKey }
+        });
+        res.json(response.data);
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch lists" });
+    }
+});
 
-// ... (the rest of the file remains the same) ...
+// POST bulk contacts
+app.post("/api/contacts/bulk", async (req, res) => {
+    const { apiKey, contacts, listId } = req.body;
+    if (!apiKey || !contacts || !listId) {
+        return res.status(400).json({ error: "API Key, contacts, and listId are required" });
+    }
+
+    const results = { success: [], failed: [] };
+
+    for (const contact of contacts) {
+        try {
+            const response = await axios.post('https://api.sendx.io/api/v1/rest/contact', {
+                ...contact,
+                lists: [listId]
+            }, {
+                headers: { 'X-Team-ApiKey': apiKey }
+            });
+            results.success.push({ email: contact.email, data: response.data });
+        } catch (error) {
+            results.failed.push({ email: contact.email, error: error.response ? error.response.data : error.message });
+        }
+    }
+
+    res.json(results);
+});
 
 
 app.listen(PORT, () => {

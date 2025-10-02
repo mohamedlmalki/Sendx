@@ -13,22 +13,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 interface AddAccountDialogProps {
-  onAccountAdd: (account: { name: string; publishableKey: string; secretKey: string; }) => void;
+  onAccountAdd: (account: { name: string; apiKey: string; }) => void;
   children: React.ReactNode;
 }
 
 export function AddAccountDialog({ onAccountAdd, children }: AddAccountDialogProps) {
   const [name, setName] = useState("");
-  const [publishableKey, setPublishableKey] = useState("");
-  const [secretKey, setSecretKey] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [open, setOpen] = useState(false);
 
   const handleSubmit = () => {
-    onAccountAdd({ name, publishableKey, secretKey });
+    onAccountAdd({ name, apiKey });
     // Reset fields and close dialog
     setName("");
-    setPublishableKey("");
-    setSecretKey("");
+    setApiKey("");
     setOpen(false);
   };
 
@@ -37,9 +35,9 @@ export function AddAccountDialog({ onAccountAdd, children }: AddAccountDialogPro
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add Magic.link Account</DialogTitle>
+          <DialogTitle>Add SendX Account</DialogTitle>
           <DialogDescription>
-            Enter the details for the new account. These can be found in your Magic.link dashboard.
+            Enter the details for the new account. These can be found in your SendX dashboard.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
@@ -48,12 +46,8 @@ export function AddAccountDialog({ onAccountAdd, children }: AddAccountDialogPro
             <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="col-span-3" placeholder="e.g., Production"/>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="publishableKey" className="text-right">Publishable Key</Label>
-            <Input id="publishableKey" value={publishableKey} onChange={(e) => setPublishableKey(e.target.value)} className="col-span-3" placeholder="pk_live_..."/>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="secretKey" className="text-right">Secret Key</Label>
-            <Input id="secretKey" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} className="col-span-3" placeholder="sk_live_..."/>
+            <Label htmlFor="apiKey" className="text-right">API Key</Label>
+            <Input id="apiKey" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="col-span-3" placeholder="Your SendX API Key"/>
           </div>
         </div>
         <DialogFooter>

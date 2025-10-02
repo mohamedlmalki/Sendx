@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Upload, Play, X, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,43 +7,77 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { useAccount } from "@/contexts/AccountContext";
+import { toast } from "@/components/ui/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+interface SendXList {
+    id: string;
+    name: string;
+}
 
 export default function BulkImport() {
+  const { activeAccount } = useAccount();
+  const [lists, setLists] = useState<SendXList[]>([]);
+  const [selectedList, setSelectedList] = useState<string | null>(null);
   const [importData, setImportData] = useState("");
   const [isImporting, setIsImporting] = useState(false);
-  const [importResults, setImportResults] = useState({
-    total: 11,
-    success: 11,
-    failed: 0,
-    timeElapsed: "00:12"
-  });
+  const [importResults, setImportResults] = useState<{success: any[], failed: any[]}>({ success: [], failed: [] });
+  const [progress, setProgress] = useState(0);
 
-  const sampleEmails = `med217623@gmail.com
-mohamelamalik1@yahoo.com
-yassintarlaysin@outlook.com
-yassp123400@outlook.com
-abdullaha1ha125@outlook.com
-korhonenbivirtanen@outlook.com
-kariemckinley@outlook.com
-colettesenger19254@outlook.com
-speziloouditori@outlook.com
-gertafox144@outlook.com`;
+  useEffect(() => {
+    const fetchLists = async () => {
+        if (activeAccount && activeAccount.apiKey) {
+            try {
+                const response = await fetch('/api/lists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apiKey: activeAccount.apiKey })
+                });
+                const data = await response.json();
+                setLists(data);
+            } catch (error) {
+                toast({ title: "Error", description: "Could not fetch SendX lists.", variant: "destructive" });
+            }
+        }
+    };
+    fetchLists();
+  }, [activeAccount]);
 
-  const handleStartImport = () => {
+  const handleStartImport = async () => {
+    if (!selectedList) {
+        toast({ title: "No list selected", description: "Please select a list to import contacts into.", variant: "destructive" });
+        return;
+    }
+    const contacts = importData.split('\n').filter(line => line.trim() !== '').map(line => ({ email: line.trim() }));
+    if (contacts.length === 0) {
+        toast({ title: "No contacts to import", description: "Please enter at least one email address.", variant: "destructive" });
+        return;
+    }
+
     setIsImporting(true);
-    // Simulate import process
-    setTimeout(() => {
-      setIsImporting(false);
-    }, 3000);
-  };
+    setProgress(0);
+    setImportResults({ success: [], failed: [] });
 
-  const successResults = [
-    { id: "11", email: "sergiegonzat45@outlook.com", status: "Invitation sent", inviteId: "inv_32H40uaI121980125Q5EYLDCr" },
-    { id: "10", email: "posterfr144@outlook.com", status: "Invitation sent", inviteId: "inv_32H401x09qcdc6bl3EZH5I900M5" },
-    { id: "9", email: "speziloouditori@outlook.com", status: "Invitation sent", inviteId: "inv_32H6Mne53ZEuM0uTnTsBzFy" },
-    { id: "8", email: "colettesenger19254@outlook.com", status: "Invitation sent", inviteId: "inv_32H6M01ubh6Pagedr4m2G40a0" },
-    { id: "7", email: "kariemckinley@outlook.com", status: "Invitation sent", inviteId: "inv_32H6M4c7AcLcH2f4oC7a4CaQ0" },
-  ];
+    try {
+        const response = await fetch('/api/contacts/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                apiKey: activeAccount?.apiKey,
+                contacts,
+                listId: selectedList
+            })
+        });
+        const data = await response.json();
+        setImportResults(data);
+        setProgress(100);
+    } catch (error) {
+        toast({ title: "Import Failed", description: "An unexpected error occurred during the import.", variant: "destructive" });
+    } finally {
+        setIsImporting(false);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -51,7 +85,7 @@ gertafox144@outlook.com`;
         <Upload className="w-5 h-5 text-primary" />
         <div>
           <h1 className="text-2xl font-semibold">Bulk User Import</h1>
-          <p className="text-muted-foreground">Import existing users into 2</p>
+          <p className="text-muted-foreground">Import existing users into SendX</p>
         </div>
       </div>
 
@@ -62,26 +96,25 @@ gertafox144@outlook.com`;
             <CardTitle>Import Configuration</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="delay">Delay (seconds)</Label>
-              <Input id="delay" type="number" defaultValue="1" className="w-20" />
+             <div>
+                <Label htmlFor="list">Select List</Label>
+                <Select onValueChange={setSelectedList} disabled={!activeAccount}>
+                    <SelectTrigger>
+                        <SelectValue placeholder="Select a list to import contacts to" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {lists.map(list => (
+                            <SelectItem key={list.id} value={list.id}>{list.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
-
-            {/* Stats */}
-            <div className="grid grid-cols-3 gap-4 p-4 bg-muted/30 rounded-lg">
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground">Time Elapsed</div>
-                <div className="text-lg font-mono font-semibold">{importResults.timeElapsed}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground">Success</div>
-                <div className="text-lg font-semibold text-success">{importResults.success}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground">Failed</div>
-                <div className="text-lg font-semibold text-destructive">{importResults.failed}</div>
-              </div>
-            </div>
+            {isImporting && (
+                <div className="pt-4">
+                    <Progress value={progress} className="h-2" />
+                    <p className="text-sm text-muted-foreground mt-2">{progress.toFixed(0)}% Complete</p>
+                </div>
+            )}
           </CardContent>
         </Card>
 
@@ -90,33 +123,15 @@ gertafox144@outlook.com`;
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               User Data Input
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>Emails: 18</span>
-                <Button variant="ghost" size="sm" onClick={() => setImportData("")}>
-                  <X className="w-4 h-4" />
-                  Clear All
-                </Button>
-              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <Button variant="outline" className="w-full">
-                <Upload className="w-4 h-4 mr-2" />
-                Upload CSV File
-                <input type="file" className="hidden" accept=".csv" />
-              </Button>
-              <p className="text-xs text-muted-foreground mt-1">
-                Format: email,firstName,lastName,password (one per line)
-              </p>
-            </div>
-
             <div className="relative">
-              <Label htmlFor="emails">Or paste data manually:</Label>
+              <Label htmlFor="emails">Paste data manually:</Label>
               <Textarea
                 id="emails"
                 placeholder="Enter email addresses, one per line"
-                value={importData || sampleEmails}
+                value={importData}
                 onChange={(e) => setImportData(e.target.value)}
                 className="min-h-[200px] font-mono text-sm"
               />
@@ -126,7 +141,7 @@ gertafox144@outlook.com`;
               <Button 
                 onClick={handleStartImport} 
                 className="flex-1"
-                disabled={isImporting}
+                disabled={isImporting || !activeAccount || !selectedList}
               >
                 {isImporting ? (
                   <>
@@ -136,73 +151,54 @@ gertafox144@outlook.com`;
                 ) : (
                   <>
                     <Play className="w-4 h-4 mr-2" />
-                    Resume
+                    Start Import
                   </>
                 )}
               </Button>
-              <Button variant="destructive">
-                <X className="w-4 h-4 mr-2" />
-                End Job
-              </Button>
             </div>
-
-            <p className="text-xs text-muted-foreground">
-              Note: Password generation is disabled when "Send invitation emails" is checked.
-            </p>
           </CardContent>
         </Card>
       </div>
 
       {/* Import Results */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            Import Results
-            <Button variant="outline" size="sm">
-              Export Filtered
-            </Button>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-sm text-muted-foreground">Importing users...</span>
-              <span className="text-sm font-medium">61%</span>
-            </div>
-            <Progress value={61} className="h-2" />
-          </div>
-
-          <div className="flex gap-4 mb-4">
-            <Button variant="outline" size="sm" className="text-primary">
-              <div className="w-2 h-2 bg-primary rounded-full mr-2"></div>
-              All (11)
-            </Button>
-            <Button variant="ghost" size="sm" className="text-success">
-              <div className="w-2 h-2 bg-success rounded-full mr-2"></div>
-              Success (11)
-            </Button>
-            <Button variant="ghost" size="sm" className="text-muted-foreground">
-              <div className="w-2 h-2 bg-muted rounded-full mr-2"></div>
-              Failed (0)
-            </Button>
-          </div>
-
-          <div className="space-y-3">
-            {successResults.map((result) => (
-              <div key={result.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                <div className="w-6 h-6 bg-success text-success-foreground rounded-full flex items-center justify-center text-xs font-medium">
-                  ✓
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium">{result.id}. {result.email}</div>
-                  <div className="text-sm text-success">{result.status}</div>
-                  <div className="text-xs text-muted-foreground font-mono">ID: {result.inviteId}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+        {(importResults.success.length > 0 || importResults.failed.length > 0) && (
+            <Card>
+                <CardHeader>
+                    <CardTitle>Import Results</CardTitle>
+                    <CardDescription>
+                        {importResults.success.length} successful imports, {importResults.failed.length} failed imports.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    {importResults.success.length > 0 && (
+                        <div>
+                            <h3 className="font-semibold text-green-600">Success</h3>
+                            <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
+                                {importResults.success.map((result, index) => (
+                                    <div key={index} className="text-xs p-2 bg-green-50 rounded-md">
+                                        <p><strong>Email:</strong> {result.email}</p>
+                                        <p><strong>ID:</strong> {result.data.id}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                     {importResults.failed.length > 0 && (
+                        <div>
+                            <h3 className="font-semibold text-red-600">Failed</h3>
+                             <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
+                                {importResults.failed.map((result, index) => (
+                                    <div key={index} className="text-xs p-2 bg-red-50 rounded-md">
+                                        <p><strong>Email:</strong> {result.email}</p>
+                                        <p><strong>Error:</strong> {JSON.stringify(result.error)}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+        )}
     </div>
   );
 }

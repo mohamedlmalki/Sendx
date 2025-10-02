@@ -1,8 +1,12 @@
 [
   {
-    "id": "acc_1757251349277",
-    "name": "My Magic App (Production)",
-    "publishableKey": "pk_live_4A3BFF51569B3B32",
-    "secretKey": "sk_live_7D7A356FBB86E491"
+    "id": "acc_1759345675007",
+    "name": "1",
+    "apiKey": "Am1zPKlWE33SRteL0p1c"
+  },
+  {
+    "id": "acc_1759346246025",
+    "name": "2",
+    "apiKey": "ZInKpYXUc0o4wF8uKUL6"
   }
 ]
