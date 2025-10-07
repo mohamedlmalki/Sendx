@@ -7,9 +7,9 @@ import { Layout } from "@/components/Layout";
 import BulkImport from "./pages/BulkImport";
 import SingleUserImport from "./pages/SingleUserImport";
 import UserManagement from "./pages/UserManagement";
-import EmailTemplates from "./pages/EmailTemplates";
+import Automation from "./pages/Automation"; // UPDATED: Import Automation
 import NotFound from "./pages/NotFound";
-import { AccountProvider } from "./contexts/AccountContext"; // Import the provider
+import { AccountProvider } from "./contexts/AccountContext";
 
 const queryClient = new QueryClient();
 
@@ -19,13 +19,14 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <AccountProvider> {/* Wrap the Layout with the AccountProvider */}
+        <AccountProvider>
           <Layout>
             <Routes>
               <Route path="/" element={<BulkImport />} />
               <Route path="/single-import" element={<SingleUserImport />} />
               <Route path="/users" element={<UserManagement />} />
-              <Route path="/email-templates" element={<EmailTemplates />} />
+              {/* UPDATED: Changed this route */}
+              <Route path="/automation" element={<Automation />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Layout>

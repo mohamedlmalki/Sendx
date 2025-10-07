@@ -15,7 +15,8 @@ import { Label } from "@/components/ui/label";
 interface Account {
     id: string;
     name: string;
-    apiKey: string;
+    clientId: string;
+    secretId: string;
 }
 
 interface EditAccountDialogProps {
@@ -26,19 +27,21 @@ interface EditAccountDialogProps {
 
 export function EditAccountDialog({ account, onAccountUpdate, children }: EditAccountDialogProps) {
   const [name, setName] = useState(account.name);
-  const [apiKey, setApiKey] = useState(account.apiKey);
+  const [clientId, setClientId] = useState(account.clientId);
+  const [secretId, setSecretId] = useState(account.secretId);
   const [open, setOpen] = useState(false);
 
   // This effect ensures the dialog's state is fresh every time it's opened
   useEffect(() => {
     if (open) {
       setName(account.name);
-      setApiKey(account.apiKey);
+      setClientId(account.clientId);
+      setSecretId(account.secretId);
     }
   }, [open, account]);
 
   const handleSubmit = () => {
-    onAccountUpdate(account.id, { name, apiKey });
+    onAccountUpdate(account.id, { name, clientId, secretId });
     setOpen(false);
   };
   
@@ -56,8 +59,12 @@ export function EditAccountDialog({ account, onAccountUpdate, children }: EditAc
                 <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="col-span-3"/>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="apiKey" className="text-right">API Key</Label>
-                <Input id="apiKey" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="col-span-3"/>
+                <Label htmlFor="clientId" className="text-right">Client ID</Label>
+                <Input id="clientId" value={clientId} onChange={(e) => setClientId(e.target.value)} className="col-span-3"/>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="secretId" className="text-right">Secret ID</Label>
+                <Input id="secretId" value={secretId} onChange={(e) => setSecretId(e.target.value)} className="col-span-3"/>
             </div>
         </div>
         <DialogFooter>

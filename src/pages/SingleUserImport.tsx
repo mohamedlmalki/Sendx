@@ -4,77 +4,109 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useAccount } from "@/contexts/AccountContext";
 import { toast } from "@/components/ui/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+interface SendPulseAddressBook {
+    id: string;
+    name: string;
+}
 
 export default function SingleUserImport() {
   const { activeAccount } = useAccount();
-  const [isLoading, setIsLoading] = useState(false);
-
+  const [isImporting, setIsImporting] = useState(false); // Corrected from isLoading
+  const [addressBooks, setAddressBooks] = useState<SendPulseAddressBook[]>([]);
+  const [selectedBook, setSelectedBook] = useState<string | null>(null);
+  
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
     email: "",
-    sendInvitation: true,
-    applicationId: "", 
   });
 
   const [serverResponse, setServerResponse] = useState("");
 
-  // This effect will run whenever the active account changes
   useEffect(() => {
-    if (activeAccount) {
-      setFormData(prev => ({ ...prev, applicationId: activeAccount.applicationId || "" }));
-    }
+    const fetchAddressBooks = async () => {
+        if (activeAccount && activeAccount.clientId) {
+            try {
+                const response = await fetch('/api/lists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clientId: activeAccount.clientId, secretId: activeAccount.secretId })
+                });
+                if (!response.ok) throw new Error("Failed to fetch");
+                const data = await response.json();
+                setAddressBooks(data);
+            } catch (error) {
+                toast({ title: "Error", description: "Could not fetch SendPulse address books.", variant: "destructive" });
+                setAddressBooks([]);
+            }
+        } else {
+            setAddressBooks([]);
+        }
+    };
+    fetchAddressBooks();
   }, [activeAccount]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeAccount) {
-      toast({ title: "No Active Account", description: "Please select an account from the sidebar.", variant: "destructive" });
+      toast({ title: "No Active Account", description: "Please select an account first.", variant: "destructive" });
       return;
     }
-     if (!formData.applicationId) {
-      toast({ title: "Application ID Required", description: "The active account must have an Application ID set.", variant: "destructive" });
+     if (!selectedBook) {
+      toast({ title: "No Address Book Selected", description: "Please select an address book to add the user to.", variant: "destructive" });
       return;
     }
 
-    setIsLoading(true);
+    setIsImporting(true);
     setServerResponse("Importing user...");
 
+    // SendPulse requires custom fields to be sent in a `variables` object
+    const contactPayload = {
+        email: formData.email,
+        variables: {
+            "FirstName": formData.firstName,
+            "LastName": formData.lastName
+        }
+    };
+
     try {
-        const response = await fetch("/api/users/import-single", {
+        const response = await fetch("/api/contacts/bulk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                account: activeAccount,
-                userData: formData,
+                clientId: activeAccount.clientId,
+                secretId: activeAccount.secretId,
+                contacts: [contactPayload], // Send as an array with one contact
+                addressBookId: selectedBook
             })
         });
         
         const data = await response.json();
         
-        if (!response.ok) {
+        if (!response.ok || data.failed.length > 0) {
            throw data;
         }
 
-        setServerResponse(JSON.stringify(data, null, 2));
+        setServerResponse(JSON.stringify(data.success[0], null, 2));
         toast({ title: "Success", description: `User ${formData.email} imported successfully.`});
-        // Clear form fields after successful import, but keep applicationId
-        setFormData(prev => ({...prev, firstName: "", lastName: "", email: ""}));
+        // Clear form fields after successful import
+        setFormData({ firstName: "", lastName: "", email: ""});
 
     } catch (error: any) {
         setServerResponse(JSON.stringify(error, null, 2));
         toast({ title: "Import Failed", description: "Could not import the user. See server response for details.", variant: "destructive" });
     } finally {
-        setIsLoading(false);
+        setIsImporting(false);
     }
   };
 
-  const handleInputChange = (field: string, value: string | boolean) => {
+  const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -84,7 +116,7 @@ export default function SingleUserImport() {
         <UserPlus className="w-5 h-5 text-primary" />
         <div>
           <h1 className="text-2xl font-semibold">Single User Import</h1>
-          <p className="text-muted-foreground">Create a new user and register them to an application.</p>
+          <p className="text-muted-foreground">Add a new contact to a SendPulse address book.</p>
         </div>
       </div>
 
@@ -92,21 +124,25 @@ export default function SingleUserImport() {
         {/* User Details Form */}
         <Card>
           <CardHeader>
-            <CardTitle>User Details</CardTitle>
+            <CardTitle>Contact Details</CardTitle>
             <CardDescription>
-                The Application ID is automatically populated from your active account settings.
+                Fill in the details for the new contact you want to add.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="applicationId">Application ID</Label>
-                <Input
-                    id="applicationId"
-                    value={formData.applicationId}
-                    readOnly // Make the field read-only
-                    className="bg-muted/50" // Add a slightly different background to indicate it's read-only
-                />
+                <Label htmlFor="list">Address Book</Label>
+                <Select onValueChange={setSelectedBook} disabled={!activeAccount || isImporting}>
+                    <SelectTrigger>
+                        <SelectValue placeholder="Select an address book" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {addressBooks.map(book => (
+                            <SelectItem key={book.id} value={book.id.toString()}>{book.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -117,6 +153,7 @@ export default function SingleUserImport() {
                     value={formData.firstName}
                     onChange={(e) => handleInputChange("firstName", e.target.value)}
                     placeholder="Enter first name"
+                    disabled={isImporting}
                   />
                 </div>
                 <div>
@@ -126,6 +163,7 @@ export default function SingleUserImport() {
                     value={formData.lastName}
                     onChange={(e) => handleInputChange("lastName", e.target.value)}
                     placeholder="Enter last name"
+                    disabled={isImporting}
                   />
                 </div>
               </div>
@@ -139,20 +177,12 @@ export default function SingleUserImport() {
                   onChange={(e) => handleInputChange("email", e.target.value)}
                   placeholder="user@example.com"
                   required
+                  disabled={isImporting}
                 />
               </div>
 
-              <div className="flex items-center space-x-2 pt-2">
-                <Checkbox
-                  id="sendInvitation"
-                  checked={formData.sendInvitation}
-                  onCheckedChange={(checked) => handleInputChange("sendInvitation", checked as boolean)}
-                />
-                <Label htmlFor="sendInvitation">Send a "Set up password" email to the user</Label>
-              </div>
-
-              <Button type="submit" className="w-full" disabled={isLoading || !activeAccount}>
-                {isLoading ? "Importing..." : "Import User"}
+              <Button type="submit" className="w-full" disabled={isImporting || !activeAccount}>
+                {isImporting ? "Importing..." : "Import User"}
               </Button>
             </form>
           </CardContent>
@@ -162,7 +192,7 @@ export default function SingleUserImport() {
         <Card>
           <CardHeader>
             <CardTitle>Server Response</CardTitle>
-            <CardDescription>The raw JSON response from the FusionAuth API will appear here.</CardDescription>
+            <CardDescription>The raw JSON response from the SendPulse API will appear here.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="bg-muted/30 rounded-lg p-4 min-h-[300px]">

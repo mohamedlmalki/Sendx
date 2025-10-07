@@ -1,4 +1,5 @@
-import { Upload, UserPlus, Users, Mail, Plus, Trash2, Pencil, Check, RefreshCw } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Upload, UserPlus, Users, Workflow, Plus, Trash2, Pencil, Check, RefreshCw } from "lucide-react"; // UPDATED: Changed Mail to Workflow
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar as useSidebarUI,
@@ -13,23 +14,34 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Progress } from "@/components/ui/progress";
+import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { useAccount } from "@/contexts/AccountContext";
 
+// UPDATED: Changed Email Templates to Automation
 const navigationItems = [
   { title: "Bulk Import", url: "/", icon: Upload },
   { title: "Single User Import", url: "/single-import", icon: UserPlus },
   { title: "User Management", url: "/users", icon: Users },
-  { title: "Email Templates", url: "/email-templates", icon: Mail },
+  { title: "Automation", url: "/automation", icon: Workflow },
 ];
 
 interface Account {
   id: string;
   name: string;
-  publishableKey: string;
-  secretKey: string;
+  clientId: string;
+  secretId: string;
   status?: "unknown" | "checking" | "connected" | "failed";
   lastCheckResponse?: any;
+}
+
+interface Sender {
+    name: string;
+    email: string;
+    status: string;
+    created_at: string;
 }
 
 const StatusIndicator = ({ account }: { account: Account }) => {
@@ -57,7 +69,7 @@ const StatusIndicator = ({ account }: { account: Account }) => {
                     <DialogHeader>
                         <DialogTitle>Connection Status: {account.name}</DialogTitle>
                         <DialogDescription>
-                            This is the last raw response received from the Magic.link server when checking the secret key.
+                            This is the last raw response received from the SendPulse server when checking credentials.
                         </DialogDescription>
                     </DialogHeader>
                     <pre className="mt-2 w-full rounded-md bg-slate-950 p-4 overflow-x-auto">
@@ -88,8 +100,12 @@ export function AppSidebar() {
     addAccount, 
     updateAccount, 
     deleteAccount,
+    checkAccountStatus
   } = useAccount(); 
   
+  const [senders, setSenders] = useState<Sender[]>([]);
+  const [isLoadingSenders, setIsLoadingSenders] = useState(false);
+
   const collapsed = state === "collapsed";
   const location = useLocation();
   const currentPath = location.pathname;
@@ -99,7 +115,53 @@ export function AppSidebar() {
     return currentPath === path;
   };
   
+  const fetchSenders = async () => {
+    if (!activeAccount) return;
+    setIsLoadingSenders(true);
+    try {
+        const response = await fetch('/api/senders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId: activeAccount.clientId, secretId: activeAccount.secretId })
+        });
+        if (!response.ok) throw new Error("Failed to fetch");
+        const data = await response.json();
+        setSenders(data);
+    } catch (error) {
+        toast({ title: "Error", description: "Could not fetch senders.", variant: "destructive" });
+    } finally {
+        setIsLoadingSenders(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeAccount) {
+        fetchSenders();
+    } else {
+        setSenders([]);
+    }
+  }, [activeAccount]);
+
+  const handleDeleteSender = async (email: string) => {
+    if (!activeAccount) return;
+     try {
+        const response = await fetch('/api/senders', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clientId: activeAccount.clientId, secretId: activeAccount.secretId, email })
+        });
+        if (!response.ok) throw new Error("Failed to delete");
+        toast({ title: "Success", description: `Sender ${email} has been deleted.` });
+        fetchSenders(); // Refresh the list
+    } catch (error) {
+        toast({ title: "Error", description: "Could not delete sender.", variant: "destructive" });
+    }
+  };
+
   const activeAccountName = activeAccount ? activeAccount.name : "No Account";
+
+  const usage = activeAccount?.lastCheckResponse?.email;
+  const usagePercentage = usage ? (usage.current_subscribers / usage.maximum_subscribers) * 100 : 0;
 
   return (
     <Sidebar className={collapsed ? "w-14" : "w-64"} collapsible="icon">
@@ -179,6 +241,67 @@ export function AppSidebar() {
             )}
         </div>
         
+        {/* Senders Management */}
+        {!collapsed && activeAccount && (
+            <Collapsible className="p-4 border-b" defaultOpen={true}>
+                <div className="flex items-center justify-between">
+                    <CollapsibleTrigger className="text-xs font-medium text-muted-foreground flex-1 text-left">
+                        SENDERS
+                    </CollapsibleTrigger>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={fetchSenders}>
+                        <RefreshCw className={cn("h-3 w-3", isLoadingSenders && "animate-spin")} />
+                    </Button>
+                </div>
+                <CollapsibleContent className="mt-2 space-y-1">
+                    {senders.length > 0 ? senders.map(sender => (
+                        <div key={sender.email} className="flex items-center justify-between text-sm p-1 rounded-md hover:bg-muted/50 group">
+                           <span className="truncate" title={sender.email}>{sender.name}</span>
+                           <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                 <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100">
+                                    <Trash2 className="h-3 w-3" />
+                                 </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Delete Sender?</AlertDialogTitle></AlertDialogHeader>
+                                <AlertDialogDescription>Are you sure you want to delete {sender.name} ({sender.email})?</AlertDialogDescription>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleDeleteSender(sender.email)} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                        </div>
+                    )) : (<p className="text-sm text-muted-foreground p-1">No senders found.</p>)}
+                </CollapsibleContent>
+            </Collapsible>
+        )}
+
+        {/* Plan Usage */}
+        {!collapsed && activeAccount && usage && (
+            <Collapsible className="p-4 border-b" defaultOpen={true}>
+                 <div className="flex items-center justify-between">
+                    <CollapsibleTrigger className="text-xs font-medium text-muted-foreground flex-1 text-left">PLAN USAGE</CollapsibleTrigger>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => checkAccountStatus(activeAccount)}>
+                        <RefreshCw className={cn("h-3 w-3", activeAccount?.status === 'checking' && "animate-spin")} />
+                    </Button>
+                </div>
+                 <CollapsibleContent className="mt-2 space-y-2">
+                    {usage ? (
+                        <>
+                            <p className="text-sm font-semibold">{usage.tariff_name}</p>
+                            <Progress value={usagePercentage} />
+                            <p className="text-xs text-muted-foreground text-center">
+                                {usage.current_subscribers} / {usage.maximum_subscribers} subscribers
+                            </p>
+                        </>
+                    ) : (
+                        <p className="text-sm text-muted-foreground p-1">Usage data not available.</p>
+                    )}
+                 </CollapsibleContent>
+            </Collapsible>
+        )}
+        
         {/* Navigation */}
         <SidebarGroup className="flex-1">
           <SidebarGroupContent>
@@ -199,7 +322,7 @@ export function AppSidebar() {
 
         {/* Footer */}
         <div className="mt-auto p-4 text-xs text-muted-foreground">
-          {!collapsed && "Built for multi-account Magic.link management"}
+          {!collapsed && "Built for multi-account SendPulse management"}
         </div>
       </SidebarContent>
     </Sidebar>

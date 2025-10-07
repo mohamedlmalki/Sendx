@@ -1,12 +1,8 @@
 [
   {
     "id": "acc_1759345675007",
-    "name": "1",
-    "apiKey": "Am1zPKlWE33SRteL0p1c"
-  },
-  {
-    "id": "acc_1759346246025",
     "name": "2",
-    "apiKey": "ZInKpYXUc0o4wF8uKUL6"
+    "clientId": "836bae7de9ca88da6b7b5717cdb3dd0f",
+    "secretId": "bc87996921b9d2217a04169e78e81e0b"
   }
 ]

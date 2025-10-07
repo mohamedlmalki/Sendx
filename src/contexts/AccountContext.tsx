@@ -1,10 +1,11 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from 'react';
 
-// Define the shape of a SendX account
+// Define the shape of a SendPulse account
 interface Account {
   id: string;
   name: string;
-  apiKey: string;
+  clientId: string;
+  secretId: string;
   status?: "unknown" | "checking" | "connected" | "failed";
   lastCheckResponse?: any;
 }
@@ -37,7 +38,7 @@ export const AccountProvider = ({ children }: { children: ReactNode }) => {
     const response = await fetch('/api/accounts/check-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: account.apiKey }) // Send the api key for validation
+        body: JSON.stringify({ clientId: account.clientId, secretId: account.secretId }) // Send credentials for validation
     });
     const result = await response.json();
     return { ...account, status: result.status, lastCheckResponse: result.response };
