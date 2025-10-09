@@ -244,7 +244,7 @@ app.delete("/api/addressbooks/:addressBookId/all-subscribers", async (req, res) 
             console.error(`Background job failed for address book ${addressBookId}:`, error.response ? error.response.data : error.message);
             let errorMessage = "An unknown error occurred.";
             if (error.response && error.response.data) {
-                errorMessage = typeof error.response.data === 'object' ? JSON.stringify(error.response.data) : error.response.data;
+                errorMessage = typeof error.response.data === 'object' ? JSON.stringify(error.response.data) : error.message;
             } else if (error.message) {
                 errorMessage = error.message;
             }
@@ -327,25 +327,34 @@ app.post("/api/automations/:id/statistics", async (req, res) => {
         const flowDetailsResponse = await axios.get(`https://api.sendpulse.com/a360/autoresponders/${id}`, config);
         const flowData = flowDetailsResponse.data;
 
-        const emailElement = flowData.flows.find(f => f.af_type === 'email');
-        let emailStats = {};
+        const emailElements = flowData.flows.filter(f => f.af_type === 'email');
+        
+        const totalStats = {
+            sent: 0, delivered: 0, opened: 0, clicked: 0,
+            unsubscribed: 0, spam: 0, send_error: 0,
+        };
 
-        if (emailElement) {
-            const emailStatsResponse = await axios.get(`https://api.sendpulse.com/a360/stats/email/${emailElement.id}/group-stat`, config);
-            emailStats = emailStatsResponse.data.data;
+        for (const emailElement of emailElements) {
+            try {
+                const emailStatsResponse = await axios.get(`https://api.sendpulse.com/a360/stats/email/${emailElement.id}/group-stat`, config);
+                const stats = emailStatsResponse.data.data;
+                totalStats.sent += stats.sent || 0;
+                totalStats.delivered += stats.delivered || 0;
+                totalStats.opened += stats.opened || 0;
+                totalStats.clicked += stats.clicked || 0;
+                totalStats.unsubscribed += stats.unsubscribed || 0;
+                totalStats.spam += stats.marked_as_spam || 0;
+                totalStats.send_error += stats.errors || 0;
+            } catch (statError) {
+                console.error(`Could not fetch stats for email element ${emailElement.id}:`, statError.message);
+            }
         }
 
         const combinedStats = {
             started: flowData.starts,
             finished: flowData.end_count,
             in_queue: flowData.in_queue,
-            sent: emailStats.sent || 0,
-            delivered: emailStats.delivered || 0,
-            opened: emailStats.opened || 0,
-            clicked: emailStats.clicked || 0,
-            unsubscribed: emailStats.unsubscribed || 0,
-            spam: emailStats.marked_as_spam || 0,
-            send_error: emailStats.errors || 0,
+            ...totalStats
         };
 
         res.json(combinedStats);
@@ -355,53 +364,83 @@ app.post("/api/automations/:id/statistics", async (req, res) => {
     }
 });
 
-// CORRECTED: Endpoint to get subscribers by action
+
 app.post("/api/automations/action-subscribers", async (req, res) => {
-    const { clientId, secretId, automationId, actionType } = req.body;
-    if (!clientId || !secretId || !automationId || !actionType) {
+    const { clientId, secretId, automationId, filterType } = req.body;
+    if (!clientId || !secretId || !automationId || !filterType) {
         return res.status(400).json({ error: "Missing required parameters." });
     }
 
     try {
         const accessToken = await getAccessToken(clientId, secretId);
         const config = { headers: { 'Authorization': `Bearer ${accessToken}` } };
-
         const flowDetailsResponse = await axios.get(`https://api.sendpulse.com/a360/autoresponders/${automationId}`, config);
-        const emailElement = flowDetailsResponse.data.flows.find(f => f.af_type === 'email');
+        const emailElements = flowDetailsResponse.data.flows.filter(f => f.af_type === 'email');
 
-        if (!emailElement) {
-            return res.json([]);
+        if (emailElements.length === 0) return res.json([]);
+
+        let allSubscribers = [];
+        for (const emailElement of emailElements) {
+            try {
+                let offset = 0;
+                const limit = 100;
+                while (true) {
+                    const listResponse = await axios.get(`https://api.sendpulse.com/a360/stats/email/${emailElement.id}/addresses`, {
+                        ...config,
+                        params: { limit, offset }
+                    });
+                    const subscribers = listResponse.data.data;
+                    if (!subscribers || subscribers.length === 0) break;
+                    allSubscribers.push(...subscribers);
+                    offset += limit;
+                }
+            } catch (listError) {
+                if (listError.response && listError.response.status === 404) {
+                    console.log(`No subscribers found for email element ${emailElement.id}, continuing...`);
+                    continue;
+                }
+                throw listError;
+            }
         }
         
-        let allSubscribers = [];
-        let offset = 0;
-        const limit = 100;
-
-        while (true) {
-            const listResponse = await axios.get(`https://api.sendpulse.com/a360/stats/email/${emailElement.id}/addresses`, {
-                ...config,
-                params: { limit, offset }
-            });
-            
-            const subscribers = listResponse.data.data;
-            if (subscribers.length === 0) {
-                break;
-            }
-
-            allSubscribers.push(...subscribers);
-            offset += limit;
-        }
-
+        const errorStatuses = [3, 4, 5, 6, 7, 8, 10, 11, 12];
         let filteredList = [];
-        if (actionType === 'opened') {
-            filteredList = allSubscribers.filter(sub => sub.open_date !== null);
-        } else if (actionType === 'clicked') {
-            filteredList = allSubscribers.filter(sub => sub.redirect_date !== null);
+
+        switch(filterType) {
+            case 'all':
+                filteredList = allSubscribers;
+                break;
+            case 'sent_not_known':
+                filteredList = allSubscribers.filter(sub => sub.delivered_status === 0);
+                break;
+            case 'delivered_not_read':
+                filteredList = allSubscribers.filter(sub => sub.delivered_status === 1 && sub.open_date === null);
+                break;
+            case 'opened':
+                filteredList = allSubscribers.filter(sub => sub.open_date !== null);
+                break;
+            case 'clicked':
+                filteredList = allSubscribers.filter(sub => sub.redirect_date !== null);
+                break;
+            case 'unsubscribed':
+                filteredList = allSubscribers.filter(sub => sub.is_unsubscribe === 1 || sub.delivered_status === 2);
+                break;
+            case 'spam_by_user':
+                filteredList = allSubscribers.filter(sub => sub.is_spam === 1 || sub.delivered_status === 9);
+                break;
+            case 'errors':
+                filteredList = allSubscribers.filter(sub => errorStatuses.includes(sub.delivered_status));
+                break;
+            default:
+                filteredList = allSubscribers;
         }
         
         res.json(filteredList);
 
     } catch (error) {
+        if (error.response && error.response.status === 404) {
+            return res.json([]);
+        }
         console.error("Failed to fetch action subscribers:", error.response ? error.response.data : error.message);
         res.status(500).json({ error: "Failed to fetch action subscribers", details: error.response ? error.response.data : error.message });
     }

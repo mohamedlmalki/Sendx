@@ -33,6 +33,7 @@ export default function BulkImport() {
   const [addressBooks, setAddressBooks] = useState<SendPulseAddressBook[]>([]);
   const [selectedBook, setSelectedBook] = useState<string | null>(null);
   const [importData, setImportData] = useState("");
+  const [subject, setSubject] = useState(""); // State for the subject
   const [isImporting, setIsImporting] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [importResults, setImportResults] = useState<ImportResult[]>([]);
@@ -113,7 +114,14 @@ export default function BulkImport() {
         toast({ title: "No address book selected", variant: "destructive" });
         return;
     }
-    const contacts = importData.split('\n').filter(line => line.trim() !== '').map(line => ({ email: line.trim() }));
+    const contacts = importData.split('\n').filter(line => line.trim() !== '').map(line => {
+        const parts = line.split(',');
+        return { 
+            email: parts[0]?.trim(),
+            firstName: parts[1]?.trim() || '',
+            lastName: parts[2]?.trim() || ''
+        };
+    });
     if (contacts.length === 0) {
         toast({ title: "No contacts to import", variant: "destructive" });
         return;
@@ -129,7 +137,6 @@ export default function BulkImport() {
     
     const totalContactsToProcess = contacts.length;
 
-    // Loop forwards from the first contact to the last
     for (let i = 0; i < totalContactsToProcess; i++) {
         if(isCancelledRef.current) {
             toast({ title: "Import Cancelled", description: "The import process was stopped." });
@@ -144,7 +151,6 @@ export default function BulkImport() {
 
         const contact = contacts[i];
         
-        // Don't delay before the very first request
         if (i > 0) {
           await sleep(delay * 1000);
         }
@@ -156,19 +162,28 @@ export default function BulkImport() {
                 body: JSON.stringify({
                     clientId: activeAccount?.clientId,
                     secretId: activeAccount?.secretId,
-                    contacts: [contact],
+                    contacts: [
+                        {
+                            email: contact.email,
+                            variables: {
+                                FirstName: contact.firstName,
+                                LastName: contact.lastName,
+                                // CUSTOMIZABLE VARIABLE: Change "S" to your desired variable name in SendPulse.
+                                S: subject
+                            }
+                        }
+                    ],
                     addressBookId: selectedBook
                 })
             });
             const data = await response.json();
 
             const newResult: ImportResult = {
-                index: i + 1, // Number based on original order (1, 2, 3...)
+                index: i + 1,
                 email: contact.email,
                 status: data.success.length > 0 ? 'success' : 'failed',
                 data: data.success.length > 0 ? JSON.stringify(data.success[0].data) : JSON.stringify(data.failed[0].error),
             };
-            // CORRECTED: Prepend the new result to the array to show it at the top of the table
             setImportResults(prev => [newResult, ...prev]);
             
         } catch (error) {
@@ -226,6 +241,17 @@ export default function BulkImport() {
                 </div>
             </div>
             
+            <div>
+              <Label htmlFor="subject">Subject (Variable: S)</Label>
+              <Input
+                id="subject"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Enter a subject to save with each contact"
+                disabled={isImporting}
+              />
+            </div>
+
             {(isImporting || importResults.length > 0) && (
                 <div className="pt-4 space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center p-4 border rounded-lg bg-muted/50">
@@ -264,10 +290,10 @@ export default function BulkImport() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative">
-              <Label htmlFor="emails">Paste data manually:</Label>
+              <Label htmlFor="emails">Paste data manually (email,firstname,lastname):</Label>
               <Textarea
                 id="emails"
-                placeholder="Enter email addresses, one per line"
+                placeholder="test@example.com,John,Doe&#x0a;another@example.com,Jane,Smith"
                 value={importData}
                 onChange={(e) => setImportData(e.target.value)}
                 className="min-h-[200px] font-mono text-sm"

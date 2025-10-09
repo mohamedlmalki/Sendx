@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { Workflow, TrendingUp, CheckCircle, Mail, MousePointerClick, BarChart, Users } from "lucide-react";
+import { Workflow, TrendingUp, CheckCircle, Mail, MousePointerClick, BarChart, Users, AlertCircle, UserX } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAccount } from "@/contexts/AccountContext";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
 
 interface Automation {
     id: number;
@@ -20,6 +21,9 @@ interface AutomationStats {
     delivered: number;
     opened: number;
     clicked: number;
+    unsubscribed: number;
+    spam: number;
+    send_error: number;
 }
 
 interface ActionSubscriber {
@@ -46,6 +50,16 @@ const StatCard = ({ title, value, icon, rate, onClick, clickable }: { title: str
     return clickable && value > 0 ? <button onClick={onClick} className="text-left w-full">{cardContent}</button> : cardContent;
 };
 
+const filterOptions = [
+    { value: 'all', label: 'All' },
+    { value: 'sent_not_known', label: 'Sent, delivery status not known yet' },
+    { value: 'delivered_not_read', label: 'Delivered, not read' },
+    { value: 'opened', label: 'Opened' },
+    { value: 'clicked', label: 'Clicked a link' },
+    { value: 'unsubscribed', label: 'Unsubscribed' },
+    { value: 'spam_by_user', label: 'Marked spam by user' },
+    { value: 'errors', label: 'Errors' },
+];
 
 export default function Automation() {
     const { activeAccount } = useAccount();
@@ -58,6 +72,7 @@ export default function Automation() {
     const [modalTitle, setModalTitle] = useState("");
     const [modalData, setModalData] = useState<ActionSubscriber[]>([]);
     const [isModalLoading, setIsModalLoading] = useState(false);
+    const [modalFilter, setModalFilter] = useState('opened');
 
     const fetchAutomations = useCallback(async () => {
         if (!activeAccount) return;
@@ -97,12 +112,10 @@ export default function Automation() {
             setIsLoading(false);
         }
     }, [activeAccount]);
-
-    const handleStatCardClick = async (actionType: 'opened' | 'clicked') => {
-        if (!activeAccount || !selectedAutomation) return;
-
-        setModalTitle(`Subscribers who ${actionType}`);
-        setIsModalOpen(true);
+    
+    const fetchFilteredSubscribers = useCallback(async () => {
+        if (!activeAccount || !selectedAutomation || !isModalOpen) return;
+        
         setIsModalLoading(true);
         setModalData([]);
 
@@ -114,10 +127,10 @@ export default function Automation() {
                     clientId: activeAccount.clientId,
                     secretId: activeAccount.secretId,
                     automationId: selectedAutomation,
-                    actionType
+                    filterType: modalFilter
                 }),
             });
-             if (!response.ok) throw new Error(`Could not fetch subscribers for action: ${actionType}`);
+             if (!response.ok) throw new Error(`Could not fetch subscribers for filter: ${modalFilter}`);
              const data = await response.json();
              setModalData(data);
         } catch (error) {
@@ -125,6 +138,18 @@ export default function Automation() {
         } finally {
             setIsModalLoading(false);
         }
+    }, [activeAccount, selectedAutomation, isModalOpen, modalFilter]);
+    
+    useEffect(() => {
+        fetchFilteredSubscribers();
+    }, [fetchFilteredSubscribers]);
+
+
+    const handleStatCardClick = (filterType: string) => {
+        const filterLabel = filterOptions.find(f => f.value === filterType)?.label || 'Subscribers';
+        setModalTitle(filterLabel);
+        setModalFilter(filterType);
+        setIsModalOpen(true);
     };
 
     useEffect(() => {
@@ -171,13 +196,16 @@ export default function Automation() {
         <CardContent>
             {isLoading && <p>Loading...</p>}
             {!isLoading && stats && (
-                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <StatCard title="Started" value={stats.started} icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />} />
+                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+                    <StatCard title="Started" value={stats.started} icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />} onClick={() => handleStatCardClick('all')} clickable={true}/>
                     <StatCard title="Finished" value={stats.finished} icon={<CheckCircle className="h-4 w-4 text-muted-foreground" />} />
-                    <StatCard title="Emails Sent" value={stats.sent} icon={<Mail className="h-4 w-4 text-muted-foreground" />} />
-                    <StatCard title="Delivered" value={stats.delivered} icon={<Users className="h-4 w-4 text-muted-foreground" />} />
+                    <StatCard title="Emails Sent" value={stats.sent} icon={<Mail className="h-4 w-4 text-muted-foreground" />} onClick={() => handleStatCardClick('all')} clickable={true} />
+                    <StatCard title="Delivered" value={stats.delivered} icon={<Users className="h-4 w-4 text-muted-foreground" />} onClick={() => handleStatCardClick('delivered_not_read')} clickable={true} />
                     <StatCard title="Opened" value={stats.opened} rate={openRate} icon={<BarChart className="h-4 w-4 text-muted-foreground" />} onClick={() => handleStatCardClick('opened')} clickable={true} />
                     <StatCard title="Clicked" value={stats.clicked} rate={clickRate} icon={<MousePointerClick className="h-4 w-4 text-muted-foreground" />} onClick={() => handleStatCardClick('clicked')} clickable={true} />
+                    <StatCard title="Unsubscribed" value={stats.unsubscribed} icon={<UserX className="h-4 w-4 text-muted-foreground" />} onClick={() => handleStatCardClick('unsubscribed')} clickable={true} />
+                    <StatCard title="Spam" value={stats.spam} icon={<AlertCircle className="h-4 w-4 text-muted-foreground" />} onClick={() => handleStatCardClick('spam_by_user')} clickable={true} />
+                    <StatCard title="Errors" value={stats.send_error} icon={<AlertCircle className="h-4 w-4 text-muted-foreground" />} onClick={() => handleStatCardClick('errors')} clickable={true} />
                  </div>
             )}
              {!isLoading && !stats && selectedAutomation && (
@@ -190,25 +218,40 @@ export default function Automation() {
       </Card>
         
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{modalTitle}</DialogTitle>
-            <DialogDescription>
-              A list of subscribers who performed this action.
+             <DialogDescription>
+              A list of subscribers who match the selected filter.
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-80 overflow-y-auto">
-            {isModalLoading ? (
-                <p>Loading subscribers...</p>
-            ) : modalData.length > 0 ? (
-                <ul className="space-y-2">
-                    {modalData.map(sub => (
-                        <li key={sub.email} className="text-sm p-2 bg-muted/50 rounded-md">{sub.email}</li>
-                    ))}
-                </ul>
-            ) : (
-                <p>No subscribers found for this action.</p>
-            )}
+          <div className="space-y-4">
+            <div>
+                <Label htmlFor="filter">Filter by status</Label>
+                <Select value={modalFilter} onValueChange={setModalFilter}>
+                    <SelectTrigger id="filter">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {filterOptions.map(option => (
+                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+            <div className="max-h-80 overflow-y-auto border rounded-md p-2">
+                {isModalLoading ? (
+                    <p>Loading subscribers...</p>
+                ) : modalData.length > 0 ? (
+                    <ul className="space-y-2">
+                        {modalData.map((sub, index) => (
+                            <li key={`${sub.email}-${index}`} className="text-sm p-2 bg-muted/50 rounded-md">{sub.email}</li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p>No subscribers found for this action.</p>
+                )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
