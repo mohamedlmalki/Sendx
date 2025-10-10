@@ -9,16 +9,16 @@ import { useAccount } from "@/contexts/AccountContext";
 import { toast } from "@/components/ui/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-interface SendPulseAddressBook {
-    id: string;
+interface GetResponseList {
+    campaignId: string;
     name: string;
 }
 
 export default function SingleUserImport() {
   const { activeAccount } = useAccount();
-  const [isImporting, setIsImporting] = useState(false); // Corrected from isLoading
-  const [addressBooks, setAddressBooks] = useState<SendPulseAddressBook[]>([]);
-  const [selectedBook, setSelectedBook] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [lists, setLists] = useState<GetResponseList[]>([]);
+  const [selectedList, setSelectedList] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
     firstName: "",
@@ -29,26 +29,26 @@ export default function SingleUserImport() {
   const [serverResponse, setServerResponse] = useState("");
 
   useEffect(() => {
-    const fetchAddressBooks = async () => {
-        if (activeAccount && activeAccount.clientId) {
+    const fetchLists = async () => {
+        if (activeAccount && activeAccount.apiKey) {
             try {
-                const response = await fetch('/api/lists', {
+                const response = await fetch('/api/getresponse/campaigns', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clientId: activeAccount.clientId, secretId: activeAccount.secretId })
+                    body: JSON.stringify({ apiKey: activeAccount.apiKey })
                 });
                 if (!response.ok) throw new Error("Failed to fetch");
                 const data = await response.json();
-                setAddressBooks(data);
+                setLists(data);
             } catch (error) {
-                toast({ title: "Error", description: "Could not fetch SendPulse address books.", variant: "destructive" });
-                setAddressBooks([]);
+                toast({ title: "Error", description: "Could not fetch GetResponse lists.", variant: "destructive" });
+                setLists([]);
             }
         } else {
-            setAddressBooks([]);
+            setLists([]);
         }
     };
-    fetchAddressBooks();
+    fetchLists();
   }, [activeAccount]);
 
 
@@ -58,44 +58,40 @@ export default function SingleUserImport() {
       toast({ title: "No Active Account", description: "Please select an account first.", variant: "destructive" });
       return;
     }
-     if (!selectedBook) {
-      toast({ title: "No Address Book Selected", description: "Please select an address book to add the user to.", variant: "destructive" });
+     if (!selectedList) {
+      toast({ title: "No List Selected", description: "Please select a list to add the user to.", variant: "destructive" });
       return;
     }
 
     setIsImporting(true);
     setServerResponse("Importing user...");
 
-    // SendPulse requires custom fields to be sent in a `variables` object
     const contactPayload = {
         email: formData.email,
-        variables: {
-            "FirstName": formData.firstName,
-            "LastName": formData.lastName
-        }
+        firstName: formData.firstName,
+        lastName: formData.lastName
     };
 
     try {
-        const response = await fetch("/api/contacts/bulk", {
+        const response = await fetch("/api/getresponse/contact", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                clientId: activeAccount.clientId,
-                secretId: activeAccount.secretId,
-                contacts: [contactPayload], // Send as an array with one contact
-                addressBookId: selectedBook
+                apiKey: activeAccount.apiKey,
+                contact: contactPayload,
+                campaignId: selectedList,
+                customFields: [] // No custom fields for single import
             })
         });
         
         const data = await response.json();
         
-        if (!response.ok || data.failed.length > 0) {
+        if (response.status !== 202) { // GetResponse returns 202 Accepted on success
            throw data;
         }
 
-        setServerResponse(JSON.stringify(data.success[0], null, 2));
-        toast({ title: "Success", description: `User ${formData.email} imported successfully.`});
-        // Clear form fields after successful import
+        setServerResponse(JSON.stringify(data, null, 2));
+        toast({ title: "Success", description: `User ${formData.email} has been queued for import.`});
         setFormData({ firstName: "", lastName: "", email: ""});
 
     } catch (error: any) {
@@ -116,12 +112,11 @@ export default function SingleUserImport() {
         <UserPlus className="w-5 h-5 text-primary" />
         <div>
           <h1 className="text-2xl font-semibold">Single User Import</h1>
-          <p className="text-muted-foreground">Add a new contact to a SendPulse address book.</p>
+          <p className="text-muted-foreground">Add a new contact to a GetResponse list.</p>
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* User Details Form */}
         <Card>
           <CardHeader>
             <CardTitle>Contact Details</CardTitle>
@@ -132,14 +127,14 @@ export default function SingleUserImport() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="list">Address Book</Label>
-                <Select onValueChange={setSelectedBook} disabled={!activeAccount || isImporting}>
+                <Label htmlFor="list">List</Label>
+                <Select onValueChange={setSelectedList} disabled={!activeAccount || isImporting}>
                     <SelectTrigger>
-                        <SelectValue placeholder="Select an address book" />
+                        <SelectValue placeholder="Select a list" />
                     </SelectTrigger>
                     <SelectContent>
-                        {addressBooks.map(book => (
-                            <SelectItem key={book.id} value={book.id.toString()}>{book.name}</SelectItem>
+                        {lists.map(list => (
+                            <SelectItem key={list.campaignId} value={list.campaignId}>{list.name}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
@@ -188,11 +183,10 @@ export default function SingleUserImport() {
           </CardContent>
         </Card>
 
-        {/* Server Response */}
         <Card>
           <CardHeader>
             <CardTitle>Server Response</CardTitle>
-            <CardDescription>The raw JSON response from the SendPulse API will appear here.</CardDescription>
+            <CardDescription>The raw JSON response from the GetResponse API will appear here.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="bg-muted/30 rounded-lg p-4 min-h-[300px]">

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Upload, Play, RefreshCw, FileJson2, Pause, Play as PlayIcon, XCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Upload, Play, FileJson2, Pause, Play as PlayIcon, XCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,196 +13,65 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useJobs } from "@/contexts/JobContext"; // Import the new hook
 
-interface SendPulseAddressBook {
-    id: string;
+// --- Interfaces ---
+interface GetResponseList {
+    campaignId: string;
     name: string;
 }
 
-interface ImportResult {
-    index: number;
-    email: string;
-    status: 'success' | 'failed';
-    data: string; // The raw JSON string from the API
-}
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-export default function BulkImport() {
-  const { activeAccount } = useAccount();
-  const [addressBooks, setAddressBooks] = useState<SendPulseAddressBook[]>([]);
-  const [selectedBook, setSelectedBook] = useState<string | null>(null);
-  const [importData, setImportData] = useState("");
-  const [subject, setSubject] = useState(""); // State for the subject
-  const [isImporting, setIsImporting] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [importResults, setImportResults] = useState<ImportResult[]>([]);
-  const [progress, setProgress] = useState(0);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [delay, setDelay] = useState(1);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const isPausedRef = useRef(false);
-  const isCancelledRef = useRef(false);
-
-  useEffect(() => {
-    isPausedRef.current = isPaused;
-  }, [isPaused]);
-
-  // Derived state for the stats panel
-  const successCount = importResults.filter(r => r.status === 'success').length;
-  const failedCount = importResults.filter(r => r.status === 'failed').length;
-  const totalProcessed = importResults.length;
-  const totalContacts = importData.split('\n').filter(line => line.trim() !== '').length;
-  const remainingCount = totalContacts - totalProcessed;
-
-  const formatTime = (seconds: number) => {
+const formatTime = (seconds: number) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
     const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
     return `${h}:${m}:${s}`;
-  };
+};
 
-  const startTimer = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
-  };
+export default function BulkImport() {
+  const { activeAccount } = useAccount();
+  const { jobs, startJob, pauseJob, resumeJob, cancelJob } = useJobs();
   
-  const stopTimer = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-  };
+  // Find the active job for the current account
+  const activeJob = Object.values(jobs).find(job => job.accountId === activeAccount?.id);
 
-  const handlePause = () => {
-    setIsPaused(true);
-    stopTimer();
-  };
-
-  const handleResume = () => {
-    setIsPaused(false);
-    startTimer();
-  };
-  
-  const handleEndJob = () => {
-    isCancelledRef.current = true;
-    setIsPaused(false); // Ensure the loop doesn't stay paused
-  };
-
-  useEffect(() => {
-    return () => stopTimer(); // Cleanup timer on component unmount
-  }, []);
+  // Local state is now only for inputs
+  const [lists, setLists] = useState<GetResponseList[]>([]);
+  const [selectedList, setSelectedList] = useState<string | null>(null);
+  const [importData, setImportData] = useState("");
+  const [delay, setDelay] = useState(1);
 
   useEffect(() => {
     const fetchLists = async () => {
-        if (activeAccount && activeAccount.clientId) {
+        if (activeAccount && activeAccount.apiKey) {
             try {
-                const response = await fetch('/api/lists', {
+                const response = await fetch('/api/getresponse/campaigns', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clientId: activeAccount.clientId, secretId: activeAccount.secretId })
+                    body: JSON.stringify({ apiKey: activeAccount.apiKey })
                 });
                 const data = await response.json();
-                setAddressBooks(data);
+                setLists(data);
             } catch (error) {
-                toast({ title: "Error", description: "Could not fetch SendPulse address books.", variant: "destructive" });
+                toast({ title: "Error", description: "Could not fetch GetResponse lists.", variant: "destructive" });
             }
         }
     };
     fetchLists();
   }, [activeAccount]);
 
-  const handleStartImport = async () => {
-    if (!selectedBook) {
-        toast({ title: "No address book selected", variant: "destructive" });
-        return;
-    }
-    const contacts = importData.split('\n').filter(line => line.trim() !== '').map(line => {
-        const parts = line.split(',');
-        return { 
-            email: parts[0]?.trim(),
-            firstName: parts[1]?.trim() || '',
-            lastName: parts[2]?.trim() || ''
-        };
-    });
-    if (contacts.length === 0) {
-        toast({ title: "No contacts to import", variant: "destructive" });
-        return;
-    }
-
-    isCancelledRef.current = false;
-    setIsImporting(true);
-    setIsPaused(false);
-    setProgress(0);
-    setImportResults([]);
-    setElapsedTime(0);
-    startTimer();
-    
-    const totalContactsToProcess = contacts.length;
-
-    for (let i = 0; i < totalContactsToProcess; i++) {
-        if(isCancelledRef.current) {
-            toast({ title: "Import Cancelled", description: "The import process was stopped." });
-            break;
-        }
-
-        while (isPausedRef.current) {
-            if(isCancelledRef.current) break;
-            await sleep(500);
-        }
-        if(isCancelledRef.current) break;
-
-        const contact = contacts[i];
-        
-        if (i > 0) {
-          await sleep(delay * 1000);
-        }
-
-        try {
-            const response = await fetch('/api/contacts/bulk', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    clientId: activeAccount?.clientId,
-                    secretId: activeAccount?.secretId,
-                    contacts: [
-                        {
-                            email: contact.email,
-                            variables: {
-                                FirstName: contact.firstName,
-                                LastName: contact.lastName,
-                                // CUSTOMIZABLE VARIABLE: Change "S" to your desired variable name in SendPulse.
-                                S: subject
-                            }
-                        }
-                    ],
-                    addressBookId: selectedBook
-                })
-            });
-            const data = await response.json();
-
-            const newResult: ImportResult = {
-                index: i + 1,
-                email: contact.email,
-                status: data.success.length > 0 ? 'success' : 'failed',
-                data: data.success.length > 0 ? JSON.stringify(data.success[0].data) : JSON.stringify(data.failed[0].error),
-            };
-            setImportResults(prev => [newResult, ...prev]);
-            
-        } catch (error) {
-             const newResult: ImportResult = {
-                index: i + 1,
-                email: contact.email,
-                status: 'failed',
-                data: JSON.stringify({ error: "An unexpected client-side error occurred." }),
-            };
-            setImportResults(prev => [newResult, ...prev]);
-        }
-        
-        setProgress(((i + 1) / totalContactsToProcess) * 100);
-    }
-    
-    stopTimer();
-    setIsImporting(false);
-    setIsPaused(false);
+  const handleStartImport = () => {
+    if (!activeAccount || !selectedList) return;
+    const selectedListName = lists.find(l => l.campaignId === selectedList)?.name || 'Unknown List';
+    startJob(activeAccount.id, selectedList, selectedListName, importData, delay);
   };
+  
+  // Derived state from the active job
+  const isImporting = activeJob && (activeJob.status === 'running' || activeJob.status === 'paused');
+  const successCount = activeJob?.results.filter(r => r.status === 'success').length || 0;
+  const failedCount = activeJob?.results.filter(r => r.status === 'failed').length || 0;
+  const remainingCount = activeJob ? activeJob.totalContacts - (successCount + failedCount) : 0;
+
 
   return (
     <div className="p-6 space-y-6">
@@ -210,12 +79,11 @@ export default function BulkImport() {
         <Upload className="w-5 h-5 text-primary" />
         <div>
           <h1 className="text-2xl font-semibold">Bulk User Import</h1>
-          <p className="text-muted-foreground">Import existing users into SendPulse</p>
+          <p className="text-muted-foreground">Import users into GetResponse. You can run multiple jobs across accounts.</p>
         </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Import Configuration */}
         <Card>
           <CardHeader>
             <CardTitle>Import Configuration</CardTitle>
@@ -223,14 +91,14 @@ export default function BulkImport() {
           <CardContent className="space-y-4">
              <div className="grid grid-cols-2 gap-4">
                 <div>
-                    <Label htmlFor="list">Select Address Book</Label>
-                    <Select onValueChange={setSelectedBook} disabled={!activeAccount || isImporting}>
+                    <Label htmlFor="list">Select List</Label>
+                    <Select onValueChange={setSelectedList} disabled={!activeAccount || isImporting}>
                         <SelectTrigger>
-                            <SelectValue placeholder="Select an address book" />
+                            <SelectValue placeholder="Select a list" />
                         </SelectTrigger>
                         <SelectContent>
-                            {addressBooks.map(book => (
-                                <SelectItem key={book.id} value={book.id.toString()}>{book.name}</SelectItem>
+                            {lists.map(list => (
+                                <SelectItem key={list.campaignId} value={list.campaignId}>{list.name}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
@@ -241,23 +109,12 @@ export default function BulkImport() {
                 </div>
             </div>
             
-            <div>
-              <Label htmlFor="subject">Subject (Variable: S)</Label>
-              <Input
-                id="subject"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="Enter a subject to save with each contact"
-                disabled={isImporting}
-              />
-            </div>
-
-            {(isImporting || importResults.length > 0) && (
+            {activeJob && (
                 <div className="pt-4 space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center p-4 border rounded-lg bg-muted/50">
                         <div>
                             <p className="text-xs text-muted-foreground">Time Elapse</p>
-                            <p className="text-lg font-bold font-mono">{formatTime(elapsedTime)}</p>
+                            <p className="text-lg font-bold font-mono">{formatTime(activeJob.elapsedTime)}</p>
                         </div>
                         <div>
                             <p className="text-xs text-muted-foreground">Success</p>
@@ -273,15 +130,16 @@ export default function BulkImport() {
                         </div>
                     </div>
                     <div>
-                        <Progress value={progress} className="h-2" />
-                        <p className="text-sm text-muted-foreground mt-2 text-center">{progress.toFixed(0)}% Complete</p>
+                        <Progress value={activeJob.progress} className="h-2" />
+                        <p className="text-sm text-muted-foreground mt-2 text-center">
+                            Job for "{activeJob.listName}" is {activeJob.status}. ({activeJob.progress.toFixed(0)}%)
+                        </p>
                     </div>
                 </div>
             )}
           </CardContent>
         </Card>
 
-        {/* User Data Input */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -297,7 +155,7 @@ export default function BulkImport() {
                 value={importData}
                 onChange={(e) => setImportData(e.target.value)}
                 className="min-h-[200px] font-mono text-sm"
-                readOnly={isImporting}
+                readOnly={!!isImporting}
               />
             </div>
 
@@ -306,24 +164,24 @@ export default function BulkImport() {
                 <Button 
                     onClick={handleStartImport} 
                     className="flex-1"
-                    disabled={!activeAccount || !selectedBook}
+                    disabled={!activeAccount || !selectedList || !!activeJob}
                 >
                     <Play className="w-4 h-4 mr-2" />
                     Start Import
                 </Button>
               )}
-              {isImporting && !isPaused && (
-                  <Button variant="outline" onClick={handlePause} className="flex-1">
+              {isImporting && activeJob?.status === 'running' && (
+                  <Button variant="outline" onClick={() => pauseJob(activeJob.id)} className="flex-1">
                       <Pause className="w-4 h-4 mr-2"/> Pause
                   </Button>
               )}
-              {isImporting && isPaused && (
-                  <Button variant="outline" onClick={handleResume} className="flex-1">
+              {isImporting && activeJob?.status === 'paused' && (
+                  <Button variant="outline" onClick={() => resumeJob(activeJob.id)} className="flex-1">
                       <PlayIcon className="w-4 h-4 mr-2"/> Resume
                   </Button>
               )}
               {isImporting && (
-                  <Button variant="destructive" onClick={handleEndJob} className="flex-1">
+                  <Button variant="destructive" onClick={() => cancelJob(activeJob.id)} className="flex-1">
                       <XCircle className="w-4 h-4 mr-2"/> End Job
                   </Button>
               )}
@@ -332,11 +190,10 @@ export default function BulkImport() {
         </Card>
       </div>
 
-      {/* Import Results */}
-        {importResults.length > 0 && (
+        {activeJob && activeJob.results.length > 0 && (
             <Card>
                 <CardHeader>
-                    <CardTitle>Import Results</CardTitle>
+                    <CardTitle>Import Results for "{activeJob.listName}"</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="rounded-md border max-h-[400px] overflow-y-auto">
@@ -350,12 +207,12 @@ export default function BulkImport() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {importResults.map((result) => (
+                        {activeJob.results.map((result) => (
                           <TableRow key={result.index}>
                             <TableCell className="font-medium">{result.index}</TableCell>
                             <TableCell>{result.email}</TableCell>
                             <TableCell>
-                               <Badge className={cn(result.status === 'success' ? 'bg-success text-success-foreground' : 'bg-destructive text-destructive-foreground')}>
+                               <Badge className={cn(result.status === 'success' ? 'bg-green-600' : 'bg-destructive', 'text-white')}>
                                 {result.status}
                                </Badge>
                             </TableCell>

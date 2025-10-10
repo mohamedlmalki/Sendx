@@ -1,26 +1,7 @@
 [
   {
-    "id": "acc_1759345675007",
-    "name": "2",
-    "clientId": "836bae7de9ca88da6b7b5717cdb3dd0f",
-    "secretId": "bc87996921b9d2217a04169e78e81e0b"
-  },
-  {
-    "id": "acc_1759968954202",
-    "name": "3",
-    "clientId": "05dccfbc1f956b8690dd5cab40428f79",
-    "secretId": "cab966bd82edea24278c3d43c2efb077"
-  },
-  {
-    "id": "acc_1759972453920",
-    "name": "4",
-    "clientId": "321e179db3b7f75cfe04878be09dd22b",
-    "secretId": "8782fe21d1aedf133a601f8eef282d43"
-  },
-  {
-    "id": "acc_1760035072740",
-    "name": "5",
-    "clientId": "2737420c8403efd7dfed32900be15daf",
-    "secretId": "a330d194339f751c8b28076192cac38d"
+    "id": "acc_1760044743093",
+    "name": "1",
+    "apiKey": "r2iwoimf1omeabcad6vt39ggs5mo3hdo"
   }
 ]

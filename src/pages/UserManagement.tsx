@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Users, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,69 +9,53 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Progress } from "@/components/ui/progress";
 
 const PAGE_SIZE = 10;
 
-interface SendPulseAddressBook {
-    id: string;
+interface GetResponseList {
+    campaignId: string;
     name: string;
 }
 
 interface Subscriber {
+    contactId: string;
+    name: string | null;
     email: string;
-    status: number;
-    variables: {
-        FirstName?: string;
-        LastName?: string;
-        [key: string]: any;
-    } | null;
-    added_date: string;
-}
-
-interface DeletionJob {
-    status: 'started' | 'fetching' | 'deleting' | 'completed' | 'failed';
-    progress: number;
-    message: string;
+    origin: string;
+    createdOn: string;
 }
 
 export default function UserManagement() {
   const { activeAccount } = useAccount();
   const [isLoading, setIsLoading] = useState(false);
-  const [addressBooks, setAddressBooks] = useState<SendPulseAddressBook[]>([]);
-  const [selectedBook, setSelectedBook] = useState<string | null>(null);
+  const [lists, setLists] = useState<GetResponseList[]>([]);
+  const [selectedList, setSelectedList] = useState<string | null>(null);
   
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalSubscribers, setTotalSubscribers] = useState(0);
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
-  
-  const [deletionJob, setDeletionJob] = useState<DeletionJob | null>(null);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
-
 
   const totalPages = Math.ceil(totalSubscribers / PAGE_SIZE);
 
-  const fetchSubscribers = useCallback(async (bookId: string, page: number) => {
+  const fetchSubscribers = useCallback(async (listId: string, page: number) => {
     if (!activeAccount) return;
     setIsLoading(true);
     setSelectedEmails([]);
     try {
-        const offset = (page - 1) * PAGE_SIZE;
-        const response = await fetch('/api/subscribers', {
+        const response = await fetch('/api/getresponse/contacts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                clientId: activeAccount.clientId,
-                secretId: activeAccount.secretId,
-                addressBookId: bookId,
-                limit: PAGE_SIZE,
-                offset: offset
+                apiKey: activeAccount.apiKey,
+                campaignId: listId,
+                page: page,
+                perPage: PAGE_SIZE
             })
         });
         if (!response.ok) throw new Error("Failed to fetch subscribers");
         const data = await response.json();
-        setSubscribers(data.emails || []);
+        setSubscribers(data.contacts || []);
         setTotalSubscribers(data.total || 0);
     } catch (error) {
         toast({ title: "Error", description: "Could not fetch subscribers.", variant: "destructive" });
@@ -81,122 +65,66 @@ export default function UserManagement() {
   }, [activeAccount]);
 
   useEffect(() => {
-    return () => { // Cleanup polling on component unmount
-        if(pollingRef.current) clearInterval(pollingRef.current);
-    }
-  }, []);
-
-  useEffect(() => {
-    const fetchAddressBooks = async () => {
+    const fetchLists = async () => {
         if (activeAccount) {
             try {
-                const response = await fetch('/api/lists', {
+                const response = await fetch('/api/getresponse/campaigns', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clientId: activeAccount.clientId, secretId: activeAccount.secretId })
+                    body: JSON.stringify({ apiKey: activeAccount.apiKey })
                 });
                 if (!response.ok) throw new Error("Failed to fetch");
                 const data = await response.json();
-                setAddressBooks(data);
-                setSelectedBook(null);
+                setLists(data);
+                setSelectedList(null);
                 setSubscribers([]);
                 setTotalSubscribers(0);
                 setCurrentPage(1);
             } catch (error) {
-                toast({ title: "Error", description: "Could not fetch address books.", variant: "destructive" });
+                toast({ title: "Error", description: "Could not fetch lists.", variant: "destructive" });
             }
         }
     };
-    fetchAddressBooks();
+    fetchLists();
   }, [activeAccount]);
 
   useEffect(() => {
-    if (selectedBook) {
-        fetchSubscribers(selectedBook, currentPage);
+    if (selectedList) {
+        fetchSubscribers(selectedList, currentPage);
     }
-  }, [selectedBook, currentPage, fetchSubscribers]);
+  }, [selectedList, currentPage, fetchSubscribers]);
   
-  const handleBookChange = (bookId: string) => {
-    setSelectedBook(bookId);
+  const handleListChange = (listId: string) => {
+    setSelectedList(listId);
     setCurrentPage(1);
   };
   
   const handleBulkDelete = async () => {
-    if(!activeAccount || !selectedBook || selectedEmails.length === 0) return;
+    if(!activeAccount || !selectedList || selectedEmails.length === 0) return;
     try {
-         const response = await fetch('/api/subscribers', {
+         const response = await fetch('/api/getresponse/contacts', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                clientId: activeAccount.clientId,
-                secretId: activeAccount.secretId,
-                addressBookId: selectedBook,
+                apiKey: activeAccount.apiKey,
+                campaignId: selectedList,
                 emails: selectedEmails
             })
         });
         if (!response.ok) throw new Error("Failed to delete");
         toast({ title: "Success", description: `${selectedEmails.length} subscriber(s) have been deleted.` });
-        fetchSubscribers(selectedBook, currentPage);
+        fetchSubscribers(selectedList, currentPage);
     } catch (error) {
          toast({ title: "Error", description: "Could not delete subscribers.", variant: "destructive" });
     }
   };
-  
-  const startPollingJobStatus = (jobId: string) => {
-    if (pollingRef.current) clearInterval(pollingRef.current);
 
-    pollingRef.current = setInterval(async () => {
-        const response = await fetch(`/api/jobs/${jobId}/status`);
-        if(response.ok) {
-            const jobStatus: DeletionJob = await response.json();
-            setDeletionJob(jobStatus);
-
-            if (jobStatus.status === 'completed' || jobStatus.status === 'failed') {
-                if (pollingRef.current) clearInterval(pollingRef.current);
-                toast({
-                    title: `Job ${jobStatus.status}`,
-                    description: jobStatus.message,
-                    variant: jobStatus.status === 'failed' ? 'destructive' : undefined,
-                });
-                // Refresh data
-                if(selectedBook) fetchSubscribers(selectedBook, 1);
-                setTimeout(() => setDeletionJob(null), 5000); // Hide progress bar after 5s
-            }
-        } else {
-             if (pollingRef.current) clearInterval(pollingRef.current);
-             setDeletionJob(null);
-        }
-    }, 2000); // Poll every 2 seconds
-  }
-
-  const handleDeleteAll = async () => {
-    if(!activeAccount || !selectedBook) return;
-    try {
-        const response = await fetch(`/api/addressbooks/${selectedBook}/all-subscribers`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                clientId: activeAccount.clientId,
-                secretId: activeAccount.secretId
-            })
-        });
-        if (!response.ok) throw new Error("Failed to start deletion job.");
-        
-        const { jobId } = await response.json();
-        setDeletionJob({ status: 'started', progress: 0, message: 'Job initialized...'});
-        startPollingJobStatus(jobId);
-
-    } catch(error) {
-        toast({ title: "Error", description: "Could not start the 'delete all' job.", variant: "destructive" });
-    }
-  };
-
-  const getStatusBadge = (status: number) => {
-    switch(status) {
-        case 0: return <Badge variant="outline">New</Badge>;
-        case 1: return <Badge variant="default" className="bg-green-600">Active</Badge>;
-        case 2: return <Badge variant="secondary">Unsubscribed</Badge>;
-        default: return <Badge variant="destructive">Other</Badge>;
+  const getOriginBadge = (origin: string) => {
+    switch(origin) {
+        case 'import': return <Badge variant="outline">Import</Badge>;
+        case 'api': return <Badge variant="default" className="bg-blue-600">API</Badge>;
+        case 'form': return <Badge variant="secondary">Form</Badge>;
+        default: return <Badge variant="outline">{origin}</Badge>;
     }
   };
   
@@ -225,26 +153,26 @@ export default function UserManagement() {
         <Users className="w-5 h-5 text-primary" />
         <div>
           <h1 className="text-2xl font-semibold">User Management</h1>
-          <p className="text-muted-foreground">View and manage subscribers in your address books.</p>
+          <p className="text-muted-foreground">View and manage subscribers in your lists.</p>
         </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Subscribers ({totalSubscribers} Total)</CardTitle>
-          <CardDescription>Select an address book to view the subscribers within it.</CardDescription>
+          <CardDescription>Select a list to view the subscribers within it.</CardDescription>
           <div className="pt-4 flex flex-wrap gap-4 items-center">
-            <Select onValueChange={handleBookChange} disabled={!activeAccount || !!deletionJob} value={selectedBook ?? ""}>
+            <Select onValueChange={handleListChange} disabled={!activeAccount} value={selectedList ?? ""}>
                 <SelectTrigger className="w-full md:w-auto md:min-w-64">
-                    <SelectValue placeholder="Select an address book..." />
+                    <SelectValue placeholder="Select a list..." />
                 </SelectTrigger>
                 <SelectContent>
-                    {addressBooks.map(book => (
-                        <SelectItem key={book.id} value={book.id.toString()}>{book.name}</SelectItem>
+                    {lists.map(list => (
+                        <SelectItem key={list.campaignId} value={list.campaignId}>{list.name}</SelectItem>
                     ))}
                 </SelectContent>
             </Select>
-            {selectedEmails.length > 0 && !deletionJob && (
+            {selectedEmails.length > 0 && (
                  <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button variant="outline" size="sm">
@@ -268,37 +196,7 @@ export default function UserManagement() {
                     </AlertDialogContent>
                   </AlertDialog>
             )}
-             {selectedBook && totalSubscribers > 0 && !deletionJob && (
-                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button variant="destructive" size="sm">
-                           <Trash2 className="h-4 w-4 mr-2" />
-                           Delete All ({totalSubscribers})
-                        </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>DANGER: Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will start a background job to permanently delete **ALL {totalSubscribers} subscribers** from this address book. This action cannot be undone and may take several minutes to complete.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDeleteAll} className="bg-destructive hover:bg-destructive/90">
-                          Yes, Delete All Subscribers
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-            )}
           </div>
-          {deletionJob && (
-            <div className="mt-4 p-4 border rounded-lg bg-muted/50">
-                <p className="text-sm font-semibold text-center mb-2">{deletionJob.message}</p>
-                <Progress value={deletionJob.progress} />
-            </div>
-          )}
         </CardHeader>
         <CardContent>
             <div className="rounded-md border">
@@ -314,7 +212,7 @@ export default function UserManagement() {
                             </TableHead>
                             <TableHead>Email</TableHead>
                             <TableHead>Name</TableHead>
-                            <TableHead>Status</TableHead>
+                            <TableHead>Origin</TableHead>
                             <TableHead>Added Date</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -323,7 +221,7 @@ export default function UserManagement() {
                             <TableRow><TableCell colSpan={5} className="text-center">Loading...</TableCell></TableRow>
                         ) : subscribers.length > 0 ? (
                             subscribers.map(sub => (
-                                <TableRow key={sub.email}>
+                                <TableRow key={sub.contactId}>
                                     <TableCell>
                                         <Checkbox 
                                             onCheckedChange={(checked) => toggleSelectOne(sub.email, !!checked)}
@@ -332,13 +230,13 @@ export default function UserManagement() {
                                         />
                                     </TableCell>
                                     <TableCell className="font-medium">{sub.email}</TableCell>
-                                    <TableCell>{`${sub.variables?.FirstName || ''} ${sub.variables?.LastName || ''}`.trim()}</TableCell>
-                                    <TableCell>{getStatusBadge(sub.status)}</TableCell>
-                                    <TableCell>{new Date(sub.added_date).toLocaleDateString()}</TableCell>
+                                    <TableCell>{sub.name || '-'}</TableCell>
+                                    <TableCell>{getOriginBadge(sub.origin)}</TableCell>
+                                    <TableCell>{new Date(sub.createdOn).toLocaleDateString()}</TableCell>
                                 </TableRow>
                             ))
                         ) : (
-                             <TableRow><TableCell colSpan={5} className="text-center">No subscribers found in this address book.</TableCell></TableRow>
+                             <TableRow><TableCell colSpan={5} className="text-center">No subscribers found in this list.</TableCell></TableRow>
                         )}
                     </TableBody>
                 </Table>
@@ -357,7 +255,7 @@ export default function UserManagement() {
                     variant="outline"
                     size="sm"
                     onClick={() => setCurrentPage(prev => prev + 1)}
-                    disabled={currentPage === totalPages || totalPages === 0}
+                    disabled={currentPage >= totalPages || totalPages === 0}
                 >
                     Next
                 </Button>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Upload, UserPlus, Users, Workflow, Plus, Trash2, Pencil, Check, RefreshCw } from "lucide-react"; // UPDATED: Changed Mail to Workflow
+import { Upload, UserPlus, Users, Workflow, Plus, Trash2, Pencil, Check, RefreshCw } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar as useSidebarUI,
@@ -7,6 +7,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { EditAccountDialog } from "./EditAccountDialog";
+import { AddFromFieldDialog } from "./AddFromFieldDialog"; // Import the new dialog
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
@@ -20,7 +21,6 @@ import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { useAccount } from "@/contexts/AccountContext";
 
-// UPDATED: Changed Email Templates to Automation
 const navigationItems = [
   { title: "Bulk Import", url: "/", icon: Upload },
   { title: "Single User Import", url: "/single-import", icon: UserPlus },
@@ -31,17 +31,17 @@ const navigationItems = [
 interface Account {
   id: string;
   name: string;
-  clientId: string;
-  secretId: string;
+  apiKey: string;
   status?: "unknown" | "checking" | "connected" | "failed";
   lastCheckResponse?: any;
 }
 
-interface Sender {
+interface FromField {
+    fromFieldId: string;
     name: string;
     email: string;
-    status: string;
-    created_at: string;
+    isActive: string;
+    createdOn: string;
 }
 
 const StatusIndicator = ({ account }: { account: Account }) => {
@@ -69,7 +69,7 @@ const StatusIndicator = ({ account }: { account: Account }) => {
                     <DialogHeader>
                         <DialogTitle>Connection Status: {account.name}</DialogTitle>
                         <DialogDescription>
-                            This is the last raw response received from the SendPulse server when checking credentials.
+                            This is the last raw response received from the GetResponse server when checking credentials.
                         </DialogDescription>
                     </DialogHeader>
                     <pre className="mt-2 w-full rounded-md bg-slate-950 p-4 overflow-x-auto">
@@ -103,8 +103,8 @@ export function AppSidebar() {
     checkAccountStatus
   } = useAccount(); 
   
-  const [senders, setSenders] = useState<Sender[]>([]);
-  const [isLoadingSenders, setIsLoadingSenders] = useState(false);
+  const [fromFields, setFromFields] = useState<FromField[]>([]);
+  const [isLoadingFromFields, setIsLoadingFromFields] = useState(false);
 
   const collapsed = state === "collapsed";
   const location = useLocation();
@@ -115,53 +115,73 @@ export function AppSidebar() {
     return currentPath === path;
   };
   
-  const fetchSenders = async () => {
+  const fetchFromFields = async () => {
     if (!activeAccount) return;
-    setIsLoadingSenders(true);
+    setIsLoadingFromFields(true);
     try {
-        const response = await fetch('/api/senders', {
+        const response = await fetch('/api/from-fields', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId: activeAccount.clientId, secretId: activeAccount.secretId })
+            body: JSON.stringify({ apiKey: activeAccount.apiKey })
         });
         if (!response.ok) throw new Error("Failed to fetch");
         const data = await response.json();
-        setSenders(data);
+        setFromFields(data);
     } catch (error) {
-        toast({ title: "Error", description: "Could not fetch senders.", variant: "destructive" });
+        toast({ title: "Error", description: "Could not fetch from fields.", variant: "destructive" });
     } finally {
-        setIsLoadingSenders(false);
+        setIsLoadingFromFields(false);
     }
   };
 
   useEffect(() => {
     if (activeAccount) {
-        fetchSenders();
+        fetchFromFields();
     } else {
-        setSenders([]);
+        setFromFields([]);
     }
   }, [activeAccount]);
 
-  const handleDeleteSender = async (email: string) => {
+  const handleDeleteFromField = async (fromFieldId: string) => {
     if (!activeAccount) return;
      try {
-        const response = await fetch('/api/senders', {
+        const response = await fetch(`/api/from-fields/${fromFieldId}`, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clientId: activeAccount.clientId, secretId: activeAccount.secretId, email })
+            body: JSON.stringify({ apiKey: activeAccount.apiKey })
         });
         if (!response.ok) throw new Error("Failed to delete");
-        toast({ title: "Success", description: `Sender ${email} has been deleted.` });
-        fetchSenders(); // Refresh the list
+        toast({ title: "Success", description: `From field has been deleted.` });
+        fetchFromFields(); // Refresh the list
     } catch (error) {
-        toast({ title: "Error", description: "Could not delete sender.", variant: "destructive" });
+        toast({ title: "Error", description: "Could not delete from field.", variant: "destructive" });
+    }
+  };
+
+  const handleAddFromField = async (field: { name: string; email: string; }) => {
+    if (!activeAccount) return;
+    try {
+        const response = await fetch('/api/from-fields', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                apiKey: activeAccount.apiKey,
+                name: field.name,
+                email: field.email,
+            })
+        });
+        if (!response.ok) throw new Error("Failed to add from field");
+        toast({ title: "Success", description: `From field added. Please check for a verification email.` });
+        fetchFromFields(); // Refresh the list
+    } catch (error) {
+        toast({ title: "Error", description: "Could not add from field.", variant: "destructive" });
     }
   };
 
   const activeAccountName = activeAccount ? activeAccount.name : "No Account";
 
-  const usage = activeAccount?.lastCheckResponse?.email;
-  const usagePercentage = usage ? (usage.current_subscribers / usage.maximum_subscribers) * 100 : 0;
+  const usage = activeAccount?.lastCheckResponse; // Placeholder for future usage stats
+  const usagePercentage = 0; // Placeholder for future usage stats
 
   return (
     <Sidebar className={collapsed ? "w-14" : "w-64"} collapsible="icon">
@@ -241,21 +261,28 @@ export function AppSidebar() {
             )}
         </div>
         
-        {/* Senders Management */}
+        {/* "From Fields" Management */}
         {!collapsed && activeAccount && (
             <Collapsible className="p-4 border-b" defaultOpen={true}>
                 <div className="flex items-center justify-between">
                     <CollapsibleTrigger className="text-xs font-medium text-muted-foreground flex-1 text-left">
-                        SENDERS
+                        FROM FIELDS
                     </CollapsibleTrigger>
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={fetchSenders}>
-                        <RefreshCw className={cn("h-3 w-3", isLoadingSenders && "animate-spin")} />
-                    </Button>
+                    <div className="flex items-center">
+                        <AddFromFieldDialog onFromFieldAdd={handleAddFromField}>
+                           <Button variant="ghost" size="icon" className="h-6 w-6">
+                               <Plus className="h-3 w-3" />
+                           </Button>
+                        </AddFromFieldDialog>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={fetchFromFields}>
+                            <RefreshCw className={cn("h-3 w-3", isLoadingFromFields && "animate-spin")} />
+                        </Button>
+                    </div>
                 </div>
                 <CollapsibleContent className="mt-2 space-y-1">
-                    {senders.length > 0 ? senders.map(sender => (
-                        <div key={sender.email} className="flex items-center justify-between text-sm p-1 rounded-md hover:bg-muted/50 group">
-                           <span className="truncate" title={sender.email}>{sender.name}</span>
+                    {fromFields.length > 0 ? fromFields.map(field => (
+                        <div key={field.fromFieldId} className="flex items-center justify-between text-sm p-1 rounded-md hover:bg-muted/50 group">
+                           <span className="truncate" title={field.email}>{field.name}</span>
                            <AlertDialog>
                               <AlertDialogTrigger asChild>
                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100">
@@ -263,22 +290,22 @@ export function AppSidebar() {
                                  </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
-                                <AlertDialogHeader><AlertDialogTitle>Delete Sender?</AlertDialogTitle></AlertDialogHeader>
-                                <AlertDialogDescription>Are you sure you want to delete {sender.name} ({sender.email})?</AlertDialogDescription>
+                                <AlertDialogHeader><AlertDialogTitle>Delete From Field?</AlertDialogTitle></AlertDialogHeader>
+                                <AlertDialogDescription>Are you sure you want to delete {field.name} ({field.email})?</AlertDialogDescription>
                                 <AlertDialogFooter>
                                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => handleDeleteSender(sender.email)} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
+                                    <AlertDialogAction onClick={() => handleDeleteFromField(field.fromFieldId)} className={buttonVariants({ variant: 'destructive' })}>Delete</AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
                         </div>
-                    )) : (<p className="text-sm text-muted-foreground p-1">No senders found.</p>)}
+                    )) : (<p className="text-sm text-muted-foreground p-1">No from fields found.</p>)}
                 </CollapsibleContent>
             </Collapsible>
         )}
 
-        {/* Plan Usage */}
-        {!collapsed && activeAccount && usage && (
+        {/* Plan Usage (Placeholder) */}
+        {!collapsed && activeAccount && (
             <Collapsible className="p-4 border-b" defaultOpen={true}>
                  <div className="flex items-center justify-between">
                     <CollapsibleTrigger className="text-xs font-medium text-muted-foreground flex-1 text-left">PLAN USAGE</CollapsibleTrigger>
@@ -287,17 +314,7 @@ export function AppSidebar() {
                     </Button>
                 </div>
                  <CollapsibleContent className="mt-2 space-y-2">
-                    {usage ? (
-                        <>
-                            <p className="text-sm font-semibold">{usage.tariff_name}</p>
-                            <Progress value={usagePercentage} />
-                            <p className="text-xs text-muted-foreground text-center">
-                                {usage.current_subscribers} / {usage.maximum_subscribers} subscribers
-                            </p>
-                        </>
-                    ) : (
-                        <p className="text-sm text-muted-foreground p-1">Usage data not available.</p>
-                    )}
+                    <p className="text-sm text-muted-foreground p-1">Usage data not available for GetResponse yet.</p>
                  </CollapsibleContent>
             </Collapsible>
         )}
@@ -322,7 +339,7 @@ export function AppSidebar() {
 
         {/* Footer */}
         <div className="mt-auto p-4 text-xs text-muted-foreground">
-          {!collapsed && "Built for multi-account SendPulse management"}
+          {!collapsed && "Built for multi-account GetResponse management"}
         </div>
       </SidebarContent>
     </Sidebar>

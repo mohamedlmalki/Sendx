@@ -12,21 +12,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-interface AddAccountDialogProps {
-  onAccountAdd: (account: { name: string; apiKey: string; }) => void;
+interface AddFromFieldDialogProps {
+  onFromFieldAdd: (field: { name: string; email: string; }) => void;
   children: React.ReactNode;
 }
 
-export function AddAccountDialog({ onAccountAdd, children }: AddAccountDialogProps) {
+export function AddFromFieldDialog({ onFromFieldAdd, children }: AddFromFieldDialogProps) {
   const [name, setName] = useState("");
-  const [apiKey, setApiKey] = useState("");
+  const [email, setEmail] = useState("");
   const [open, setOpen] = useState(false);
 
   const handleSubmit = () => {
-    onAccountAdd({ name, apiKey });
+    onFromFieldAdd({ name, email });
     // Reset fields and close dialog
     setName("");
-    setApiKey("");
+    setEmail("");
     setOpen(false);
   };
 
@@ -35,23 +35,23 @@ export function AddAccountDialog({ onAccountAdd, children }: AddAccountDialogPro
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add GetResponse Account</DialogTitle>
+          <DialogTitle>Add From Field</DialogTitle>
           <DialogDescription>
-            Enter the details for the new account. You can find your API Key in your GetResponse dashboard.
+            Enter the name and email for the new sender. GetResponse will send a verification email.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="name" className="text-right">Account Name</Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="col-span-3" placeholder="e.g., Production"/>
+            <Label htmlFor="name" className="text-right">Name</Label>
+            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="col-span-3" placeholder="e.g., John Doe"/>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="apiKey" className="text-right">API Key</Label>
-            <Input id="apiKey" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="col-span-3" placeholder="Your GetResponse API Key"/>
+            <Label htmlFor="email" className="text-right">Email</Label>
+            <Input id="email" value={email} onChange={(e) => setEmail(e.target.value)} className="col-span-3" placeholder="your.email@example.com"/>
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={handleSubmit}>Save Account</Button>
+          <Button onClick={handleSubmit}>Add From Field</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
